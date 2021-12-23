@@ -30,24 +30,34 @@ def read_root():
 
 @app.get("/chat")
 def chat(text: str):
+    def find_in_str(str):
+        def _sub(X):
+            ret = str.find(X)
+            return ret if ret >= 0 else len(str)
+        return _sub
+    def retry_conditions(result):
+        if len(result.strip()) == 0: return True
+        if 'doo doo doo' not in result: return True
+        return False
+    retry = 3
     request_text = f'{prompt_text}\nHuman: {text}\nAI: '
-    res = requests.post(endpoint_url, data={
-        'text': request_text,
-        'length': 50,
-    })
-    if res.status_code == 200:
-        response_text = res.json()['0']
-        ret_text = ''
-        for i in range(len(request_text), len(response_text)):
-            if response_text[i] == '\n' or response_text[i:i + 6] == 'Human: ' or response_text[i:i + 4] == 'AI: ':
-                break
-            ret_text += response_text[i]
-        return {
-            'status_code': res.status_code,
-            'message': ret_text
-        }
-    else:
-        return {
-            "status_code": res.status_code,
-            "message": "Some Error Occurs"
-        }
+    while retry:
+        retry -= 1
+        res = requests.post(endpoint_url, data={
+            'text': request_text,
+            'length': 50,
+        })
+        if res.status_code == 200:
+            response_text = res.json()['0']
+            ret_text = response_text[len(request_text):]
+            ret_text = ret_text[:min(map( find_in_str(ret_text) , ["Human: ", "AI: ", '\n']))]
+            if not retry_conditions(ret_text) or retry == 0:
+                return {
+                    'status_code': res.status_code,
+                    'message': ret_text
+                }
+        elif retry == 0:
+            return {
+                "status_code": res.status_code,
+                "message": "Some Error Occurs"
+            }
