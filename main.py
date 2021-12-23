@@ -39,7 +39,7 @@ def chat(text: str):
         response_text = res.json()['0']
         ret_text = ''
         for i in range(len(request_text), len(response_text)):
-            if response_text[i] == '\n' or response_text[i:i + 6] == 'Human: ' or response_text[i:i + 4] == 'AI: ':
+            if response_text[i] == '\n' or response_text[i:i + 7] == 'Human: ' or response_text[i:i + 4] == 'AI: ':
                 break
             ret_text += response_text[i]
         return {
