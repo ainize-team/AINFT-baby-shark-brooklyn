@@ -45,6 +45,11 @@ def chat(text: str):
             "status_code": 400,
             "message": "There seems to be no content."
         }
+    if len(text) >= 150:
+        return {
+            "status_code": 400,
+            "message": "You cannot enter more than 150 characters."
+        }
     request_text = f'{prompt_text}\nHuman: {text}\nAI: '
     res = requests.post(endpoint_url, data={
         'text': request_text,
