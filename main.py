@@ -30,6 +30,21 @@ def read_root():
 
 @app.get("/chat")
 def chat(text: str):
+    if '\n' in text:
+        return {
+            "status_code": 400,
+            "message": "Newline characters cannot be entered."
+        }
+    if 'AI:' in text or 'Human:' in text or '<|endoftext|>' in text:
+        return {
+            "status_code": 400,
+            "message": "You may have entered an invalid word."
+        }
+    if len(text) == 0 or len(text.strip()):
+        return {
+            "status_code": 400,
+            "message": "There seems to be no content."
+        }
     request_text = f'{prompt_text}\nHuman: {text}\nAI: '
     res = requests.post(endpoint_url, data={
         'text': request_text,
