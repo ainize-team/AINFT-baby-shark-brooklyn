@@ -40,7 +40,7 @@ def chat(text: str):
             "status_code": 400,
             "message": "You may have entered an invalid word."
         }
-    if len(text) == 0 or len(text.strip()):
+    if len(text) == 0 or len(text.strip()) == 0:
         return {
             "status_code": 400,
             "message": "There seems to be no content."
