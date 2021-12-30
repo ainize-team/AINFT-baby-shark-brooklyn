@@ -1,8 +1,9 @@
-import json
 import os
+import json
+import requests
 
 import firebase_admin
-import requests
+
 from fastapi import FastAPI
 from firebase_admin import credentials, db
 
@@ -117,11 +118,14 @@ def chat(text: str, twitter_id: str = ""):
             prompt_text = f"{information}\n\n{chat_logs}"
     else:
         prompt_text = f"{information}\n\n{chat_logs}"
-    request_text = f"{prompt_text}\nHuman: {text}\nAI: "
+    if text[0].islower():
+        text = text[0].upper() + text[1:]
+    request_text = f"{prompt_text}\nHuman: {text}\nAI:"
     res = requests.post(endpoint_url, data={
         "text": request_text,
         "length": 50,
     })
+
     if res.status_code == 200:
         response_text = res.json()["0"]
         ret_text = ""
