@@ -1,27 +1,56 @@
-import os
 import json
+import os
 import time
-import requests
-from typing import Dict, List, Tuple
-
-import tweepy
-from TwitterAPI import TwitterAPI, TwitterRequestError, TwitterConnectionError, TwitterPager
+from typing import Dict, List
 
 import firebase_admin
-from firebase_admin import credentials, db
+import requests
+import tweepy
+from TwitterAPI import TwitterAPI, TwitterPager
 from fastapi import FastAPI
+from firebase_admin import credentials, db
 
+# START LOAD ENV
+print("Load Value From ENV")
+endpoint_url = os.environ.get("ENDPOINT_URL", "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate")
+
+firebase_credentials = {
+    "type": os.environ.get("FIREBASE_TYPE"),
+    "project_id": os.environ.get("FIREBASE_PROJECT_ID"),
+    "private_key_id": os.environ.get("FIREBASE_PRIVATE_KEY_ID"),
+    "private_key": os.environ.get("FIREBASE_PRIVATE_KEY").replace("\\n", "\n"),
+    "client_email": os.environ.get("FIREBASE_CLIENT_EMAIL"),
+    "client_id": os.environ.get("FIREBASE_CLIENT_ID"),
+    "auth_uri": os.environ.get("FIREBASE_AUTH_URI"),
+    "token_uri": os.environ.get("FIREBASE_TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.environ.get("FIREBASE_AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.environ.get("FIREBASE_CLIENT_X509_CERT_URL")
+}
+
+firebase_configs = {
+    "apiKey": os.environ.get("FIREBASE_API_KEY"),
+    "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN"),
+    "databaseURL": os.environ.get("FIREBASE_DATABASE_URL"),
+    "projectId": os.environ.get("FIREBASE_PROJECT_ID"),
+    "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET"),
+    "messagingSenderId": os.environ.get("FIREBASE_MESSAGING_SENDER_ID"),
+    "appId": os.environ.get("FIREBASE_APP_ID"),
+}
+
+twitter_credential = {
+    "CONSUMER_KEY": os.environ.get("TWITTER_CONSUMER_KEY"),
+    "CONSUMER_SECRET": os.environ.get("TWITTER_CONSUMER_SECRET"),
+    "ACCESS_TOKEN": os.environ.get("TWITTER_ACCESS_TOKEN"),
+    "ACCESS_TOKEN_SECRET": os.environ.get("TWITTER_ACCESS_TOKEN_SECRET"),
+}
+
+# END LOAD ENV
 # Init Firebase
 cred = credentials.Certificate(firebase_credentials)
 firebase_admin.initialize_app(cred, firebase_configs)
 
-'''
-TODO
-1. Modify to get necessary information from env
-2. Define functions to be used by root ( ex, server check )
-'''
-
 TWEET_FIELDS = 'conversation_id'
+
 
 def connect_api():
     # To Search with user's Screen Name
@@ -55,7 +84,7 @@ def tweet_text_reply_tag_cleansing(txt: str) -> str:
 def get_new_tweets(api: tweepy.api, name: str, count: int = 5) -> Dict[str, Dict[str, str]]:
     print("Retrieving tweets")
     ret = {}
-    tweets = api.user_timeline(screen_name=name, include_rts=False, count=count+1, tweet_mode="extended")
+    tweets = api.user_timeline(screen_name=name, include_rts=False, count=count + 1, tweet_mode="extended")
     for tweet in tweets:
         ret[tweet.id_str] = {
             "tweet_id": tweet.id_str,
@@ -110,7 +139,7 @@ def get_replies(twapi, conversation_list):
                                  'query': f'conversation_id:{c_id}',
                                  'tweet.fields': 'author_id,conversation_id,created_at,in_reply_to_user_id'
                              }
-                            )
+                             )
         for item in pager.get_iterator(wait=2):
             replies.append(item)
     return replies
@@ -173,14 +202,15 @@ def crawl_twitter(screen_name: str) -> None:
 app = FastAPI()
 endpoint_url = 'https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate'
 
-with open('./data.json', 'r') as f:
+# LOAD BROOKLYN DATA
+print("Load Brooklyn data")
+with open("./data.json", "r") as f:
     json.load(f)
-    with open('./data.json', 'r') as f:
+    with open("./data.json", "r") as f:
         json_obj = json.load(f)
 
-information = ' '.join(json_obj['information'])
-chat_logs = '\n'.join([f'Human: {each["Human"]}\nAI: {each["AI"]}' for each in json_obj['logs']])
-prompt_text = f'{information}\n\n{chat_logs}'
+information = " ".join(json_obj["information"])
+chat_logs = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in json_obj["logs"]])
 
 
 @app.get("/")
@@ -195,13 +225,13 @@ def make_twitter_data(screen_name: str):
 
 
 @app.get("/chat")
-def chat(text: str):
-    if '\n' in text:
+def chat(text: str, twitter_id: str = ""):
+    if "\n" in text:
         return {
             "status_code": 400,
             "message": "Newline characters cannot be entered."
         }
-    if 'AI:' in text or 'Human:' in text or '<|endoftext|>' in text:
+    if "AI:" in text or "Human:" in text or "<|endoftext|>" in text:
         return {
             "status_code": 400,
             "message": "You may have entered an invalid word."
@@ -216,25 +246,61 @@ def chat(text: str):
             "status_code": 400,
             "message": "You cannot enter more than 150 characters."
         }
-    request_text = f'{prompt_text}\nHuman: {text}\nAI: '
+    if twitter_id:
+        ref = db.reference(twitter_id)
+        data = ref.get()
+        if data is None:
+            return {
+                "status_code": 200,
+                "message": f"There is no data corresponding to the {twitter_id}."
+            }
+        if data["status"] != "completed":
+            return {
+                "status_code": 200,
+                "message": f"We are collecting data corresponding to {twitter_id}."
+            }
+        twitter_chat_logs = ""
+        for context_id, comments in data["data"].items():
+            for idx, comment in enumerate(comments["comments"]):
+                print(comment)
+                req = comment["req"]
+                res = comment["res"]
+                if res[-1] == "?" or res[-1] == "!":
+                    res = res
+                elif res[-1] == ".":
+                    res = res[:-1] + " doo doo doo doo doo doo."
+                else:
+                    res += " doo doo doo doo doo doo"
+                twitter_chat_logs += f"Human: {req}\nAI: {res}"
+                if idx != len(comments) - 1:
+                    twitter_chat_logs += "\n"
+        if twitter_chat_logs:
+            prompt_text = f"{information}\n\n{twitter_chat_logs}\n{chat_logs}"
+        else:
+            prompt_text = f"{information}\n\n{chat_logs}"
+    else:
+        prompt_text = f"{information}\n\n{chat_logs}"
+    if text[0].islower():
+        text = text[0].upper() + text[1:]
+    request_text = f"{prompt_text}\nHuman: {text}\nAI:"
     res = requests.post(endpoint_url, data={
-        'text': request_text,
-        'length': 50,
+        "text": request_text,
+        "length": 50,
     })
+
     if res.status_code == 200:
-        response_text = res.json()['0']
-        ret_text = ''
+        response_text = res.json()["0"]
+        ret_text = ""
         for i in range(len(request_text), len(response_text)):
-            if response_text[i] == '\n' or response_text[i:i + 7] == 'Human: ' or response_text[i:i + 4] == 'AI: ':
+            if response_text[i] == "\n" or response_text[i:i + 7] == "Human: " or response_text[i:i + 4] == "AI: ":
                 break
             ret_text += response_text[i]
         return {
-            'status_code': res.status_code,
-            'message': ret_text
+            "status_code": res.status_code,
+            "message": ret_text.strip()
         }
     else:
         return {
             "status_code": res.status_code,
             "message": "Some Error Occurs"
         }
-
