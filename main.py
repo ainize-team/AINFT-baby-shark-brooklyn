@@ -8,9 +8,6 @@ import requests
 from fastapi import FastAPI
 from firebase_admin import credentials, db
 
-from dotenv import load_dotenv  # For Dev
-load_dotenv()
-
 # START LOAD ENV
 print("Load Value From ENV")
 endpoint_url = os.environ.get("ENDPOINT_URL", "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate")
@@ -38,7 +35,6 @@ firebase_configs = {
     "appId": os.environ.get("FIREBASE_APP_ID"),
 }
 
-
 # END LOAD ENV
 # Init Firebase
 cred = credentials.Certificate(firebase_credentials)
@@ -47,7 +43,6 @@ firebase_admin.initialize_app(cred, firebase_configs)
 # Init server and load data
 app = FastAPI()
 endpoint_url = 'https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate'
-
 
 
 # LOAD BROOKLYN DATA
@@ -64,7 +59,7 @@ def read_root():
     return {"Hello": "World"}
 
 
-@app.get("/chat")
+@app.get("/chat-brooklyn")
 def chat(text: str):
     if "\n" in text:
         return {
@@ -87,7 +82,7 @@ def chat(text: str):
             "message": "You cannot enter more than 150 characters."
         }
 
-    prompt_text = f"{information}\n\n{chat_logs}"
+    prompt_text = f"{informations}\n\n{chat_logs}"
     if text[0].islower():
         text = text[0].upper() + text[1:]
     request_text = f"{prompt_text}\nHuman: {text}\nAI:"
