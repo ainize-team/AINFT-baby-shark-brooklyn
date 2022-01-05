@@ -1,5 +1,6 @@
 import json
 import os
+import random
 
 import requests
 from fastapi import FastAPI
@@ -38,6 +39,8 @@ firebase_admin.initialize_app(cred, firebase_configs)
 
 # Init server and load data
 app = FastAPI()
+endpoint_url = "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate"
+bad_words_filter_endpoint_url = "https://main-roberta-binary-sentiment-classification-ainize-team.endpoint.ainize.ai/classification"
 
 ERROR_DICT = {
     1: {
@@ -66,8 +69,36 @@ ERROR_DICT = {
     },
 }
 
+BAD_WORDS = {
+    "human": {
+        "singular": [
+            "I don't know what you're talking about doo doo doo doo doo doo.",
+            "I think you use bad words. You can't use bad words doo doo doo doo doo doo.",
+            "I think what you say is unethical doo doo doo doo doo doo."
+        ],
+        "plural": [
+            "We don't know what you're talking about doo doo doo doo doo doo.",
+            "We think you use bad words. You can't use bad words doo doo doo doo doo doo.",
+            "We think what you say is unethical doo doo doo doo doo doo."
+        ],
+    },
+    "bot": {
+        "singular": [
+            "I don't know what you're talking about doo doo doo doo doo doo."
+            "I didn't understand what you were saying doo doo doo doo doo doo.",
+        ],
+        "plural": [
+            "We don't know what you're talking about doo doo doo doo doo doo.",
+            "We didn't understand what you were saying doo doo doo doo doo doo.",
+        ],
+    }
+}
+
 informations = {}
 chat_logs = {}
+for name, data in data.items():
+    informations[name] = " ".join(data["information"])
+    chat_logs[name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
 
 def prompt_updater(path="/babyShark"):
     if path == "/babyShark":
@@ -102,30 +133,52 @@ def check_input_text(text) -> int:
     return 0
 
 
-def chat(text: str, prompt_text: str):
+def get_bad_score(text) -> float:
+    res = requests.get(bad_words_filter_endpoint_url, params={"text": text})
+    if res.status_code == 200:
+        return res.json()["result"][0]
+    else:
+        return 1.0
+
+
+def chat(text: str, prompt_text: str, grammatical_person: str):
+    if get_bad_score(text) >= 0.4:
+        random_idx = random.randint(0, len(BAD_WORDS["human"][grammatical_person]) - 1)
+        return {
+            "status_code": 200,
+            "message": BAD_WORDS["human"][grammatical_person][random_idx]
+        }
     if text[0].islower():
         text = text[0].upper() + text[1:]
     request_text = f"{prompt_text}\nHuman: {text}\nAI:"
-    res = requests.post(endpoint_url, data={
-        "text": request_text,
-        "length": 50,
-    })
-    if res.status_code == 200:
-        response_text = res.json()["0"]
-        ret_text = ""
-        for i in range(len(request_text), len(response_text)):
-            if response_text[i] == "\n" or response_text[i:i + 7] == "Human: " or response_text[i:i + 4] == "AI: ":
-                break
-            ret_text += response_text[i]
-        return {
-            "status_code": res.status_code,
-            "message": ret_text.strip()
-        }
-    else:
-        return {
-            "status_code": res.status_code,
-            "message": "Some Error Occurs"
-        }
+
+    for step in range(3):
+        res = requests.post(endpoint_url, data={
+            "text": request_text,
+            "length": 50,
+        })
+        if res.status_code == 200:
+            response_text = res.json()["0"]
+            ret_text = ""
+            for i in range(len(request_text), len(response_text)):
+                if response_text[i] == "\n" or response_text[i:i + 7] == "Human: " or response_text[i:i + 4] == "AI: ":
+                    break
+                ret_text += response_text[i]
+            if get_bad_score(ret_text.strip()) < 0.4:
+                return {
+                    "status_code": res.status_code,
+                    "message": ret_text.strip()
+                }
+        else:
+            return {
+                "status_code": res.status_code,
+                "message": "Some Error Occurs"
+            }
+    random_idx = random.randint(0, len(BAD_WORDS["bot"][grammatical_person]) - 1)
+    return {
+        "status_code": 200,
+        "message": BAD_WORDS["bot"][grammatical_person][random_idx]
+    }
 
 
 @app.get("/chat-brooklyn")
@@ -134,7 +187,7 @@ def chat_brooklyn(text: str):
     if error_code:
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['brooklyn']}\n\n{chat_logs['brooklyn']}"
-    return chat(text, prompt_text)
+    return chat(text, prompt_text, "singular")
 
 
 @app.get("/chat-william")
@@ -143,7 +196,7 @@ def chat_william(text: str):
     if error_code:
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['william']}\n\n{chat_logs['william']}"
-    return chat(text, prompt_text)
+    return chat(text, prompt_text, "singular")
 
 
 @app.get("/chat-shark-family")
@@ -152,7 +205,7 @@ def chat_shark_family(text: str):
     if error_code:
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['shark_family']}\n\n{chat_logs['shark_family']}"
-    return chat(text, prompt_text)
+    return chat(text, prompt_text, "plural")
 
 
 @app.post("/update-prompt")
