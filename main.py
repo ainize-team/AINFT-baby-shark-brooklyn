@@ -40,7 +40,8 @@ firebase_admin.initialize_app(cred, firebase_configs)
 # Init server and load data
 app = FastAPI()
 endpoint_url = "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate"
-bad_words_filter_endpoint_url = "https://main-roberta-binary-sentiment-classification-ainize-team.endpoint.ainize.ai/classification"
+bad_words_filter_endpoint_url = \
+    "https://main-roberta-binary-sentiment-classification-ainize-team.endpoint.ainize.ai/classification"
 
 ERROR_DICT = {
     1: {
@@ -69,52 +70,41 @@ ERROR_DICT = {
     },
 }
 
-BAD_WORDS = {
-    "human": {
-        "singular": [
-            "I don't know what you're talking about doo doo doo doo doo doo.",
-            "I think you use bad words. You can't use bad words doo doo doo doo doo doo.",
-            "I think what you say is unethical doo doo doo doo doo doo."
-        ],
-        "plural": [
-            "We don't know what you're talking about doo doo doo doo doo doo.",
-            "We think you use bad words. You can't use bad words doo doo doo doo doo doo.",
-            "We think what you say is unethical doo doo doo doo doo doo."
-        ],
-    },
-    "bot": {
-        "singular": [
-            "I don't know what you're talking about doo doo doo doo doo doo."
-            "I didn't understand what you were saying doo doo doo doo doo doo.",
-        ],
-        "plural": [
-            "We don't know what you're talking about doo doo doo doo doo doo.",
-            "We didn't understand what you were saying doo doo doo doo doo doo.",
-        ],
-    }
-}
 
 informations = {}
 chat_logs = {}
-for name, data in data.items():
-    informations[name] = " ".join(data["information"])
-    chat_logs[name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
+bad_words = {}
+
+
+def bad_words_updater():
+    global bad_words
+    ref = db.reference("/BAD_WORDS")
+    bad_words = ref.get()
+
 
 def prompt_updater(path="/babyShark"):
     if path == "/babyShark":
         ref = db.reference(path)
         data = ref.get()
-        for shark in data:
-            informations[shark] = " ".join(data[shark]['information'])
-            chat_logs[shark] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data[shark]["logs"]])
+        for ai_name in data:
+            informations[ai_name] = " ".join(data[ai_name]['information'])
+            chat_logs[ai_name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data[ai_name]["logs"]])
     else:
         ref = db.reference(path)
         data = ref.get()
-        shark = path.split("/")[-1]
-        informations[shark] = " ".join(data['information'])
-        chat_logs[shark] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
+        ai_name = path.split("/")[-1]
+        informations[ai_name] = " ".join(data['information'])
+        chat_logs[ai_name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
+
+
+def chat_log_writer(user_text: str, response: str, ai_name: str):
+    ref = db.reference("/chat_logs")
+    ref.push({"user_text": user_text, "ai_name": ai_name, "response": response})
+
 
 prompt_updater()
+bad_words_updater()
+
 
 @app.get("/")
 def read_root():
@@ -141,13 +131,16 @@ def get_bad_score(text) -> float:
         return 1.0
 
 
-def chat(text: str, prompt_text: str, grammatical_person: str):
+def chat(text: str, prompt_text: str, ai_name: str):
+    grammatical_person = singular if ai_name in {"brooklyn", "william"} else "plural"
     if get_bad_score(text) >= 0.4:
         random_idx = random.randint(0, len(BAD_WORDS["human"][grammatical_person]) - 1)
-        return {
+        response = {
             "status_code": 200,
             "message": BAD_WORDS["human"][grammatical_person][random_idx]
         }
+        chat_log_writer(text, response, ai_name)
+        return
     if text[0].islower():
         text = text[0].upper() + text[1:]
     request_text = f"{prompt_text}\nHuman: {text}\nAI:"
@@ -165,20 +158,26 @@ def chat(text: str, prompt_text: str, grammatical_person: str):
                     break
                 ret_text += response_text[i]
             if get_bad_score(ret_text.strip()) < 0.4:
-                return {
+                response = {
                     "status_code": res.status_code,
                     "message": ret_text.strip()
                 }
+                chat_log_writer(text, response, ai_name)
+                return response
         else:
-            return {
+            response = {
                 "status_code": res.status_code,
-                "message": "Some Error Occurs"
+                "message": "Unexpected Error Occurs"
             }
+            chat_log_writer(text, response, ai_name)
+            return response
     random_idx = random.randint(0, len(BAD_WORDS["bot"][grammatical_person]) - 1)
-    return {
+    response = {
         "status_code": 200,
         "message": BAD_WORDS["bot"][grammatical_person][random_idx]
     }
+    chat_log_writer(text, response, ai_name)
+    return response
 
 
 @app.get("/chat-brooklyn")
@@ -208,13 +207,20 @@ def chat_shark_family(text: str):
     return chat(text, prompt_text, "plural")
 
 
-@app.post("/update-prompt")
+@app.post("/update")
 def update_prompt(token: str, path: str = None):
     if token == firebase_configs["apiKey"]:
         if path is not None:
-            if path not in {'/babyShark/brooklyn', '/babyShark/william', '/babyShark/shark_family'}:
+            if path not in {"/babyShark/brooklyn",
+                            "/babyShark/william",
+                            "/babyShark/shark_family",
+                            "/BAD_WORDS"
+                            }:
                 return ERROR_DICT[6]
-            prompt_updater(path)
+            if path == "/BAD_WORDS":
+                bad_words_updater()
+            else:
+                prompt_updater(path)
         else:
             prompt_updater()
         return {
