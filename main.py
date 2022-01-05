@@ -1,12 +1,10 @@
-import json
 import os
 import random
 
+import firebase_admin
 import requests
 from fastapi import FastAPI
-import firebase_admin
 from firebase_admin import credentials, db
-
 
 firebase_credentials = {
     "type": os.environ.get("FIREBASE_TYPE"),
@@ -36,6 +34,37 @@ endpoint_url = os.environ.get("ENDPOINT_URL", "https://main-ainize-gpt-j-6b-589h
 # END LOAD ENV
 cred = credentials.Certificate(firebase_credentials)
 firebase_admin.initialize_app(cred, firebase_configs)
+
+informations = {}
+chat_logs = {}
+bad_words = {}
+
+
+def bad_words_updater():
+    global bad_words
+    ref = db.reference("/BAD_WORDS")
+    bad_words = ref.get()
+
+
+def prompt_updater(path="/babyShark"):
+    global informations, chat_logs
+    if path == "/babyShark":
+        ref = db.reference(path)
+        data = ref.get()
+        for ai_name in data:
+            informations[ai_name] = " ".join(data[ai_name]['information'])
+            chat_logs[ai_name] = "\n".join(
+                [f"Human: {each['Human']}\nAI: {each['AI']}" for each in data[ai_name]["logs"]])
+    else:
+        ref = db.reference(path)
+        data = ref.get()
+        ai_name = path.split("/")[-1]
+        informations[ai_name] = " ".join(data['information'])
+        chat_logs[ai_name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
+
+
+prompt_updater()
+bad_words_updater()
 
 # Init server and load data
 app = FastAPI()
@@ -71,44 +100,9 @@ ERROR_DICT = {
 }
 
 
-informations = {}
-chat_logs = {}
-bad_words = {}
-
-
-def bad_words_updater():
-    global bad_words
-    ref = db.reference("/BAD_WORDS")
-    bad_words = ref.get()
-
-
-def prompt_updater(path="/babyShark"):
-    if path == "/babyShark":
-        ref = db.reference(path)
-        data = ref.get()
-        for ai_name in data:
-            informations[ai_name] = " ".join(data[ai_name]['information'])
-            chat_logs[ai_name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data[ai_name]["logs"]])
-    else:
-        ref = db.reference(path)
-        data = ref.get()
-        ai_name = path.split("/")[-1]
-        informations[ai_name] = " ".join(data['information'])
-        chat_logs[ai_name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
-
-
 def chat_log_writer(user_text: str, response: str, ai_name: str):
     ref = db.reference("/chat_logs")
     ref.push({"user_text": user_text, "ai_name": ai_name, "response": response})
-
-
-prompt_updater()
-bad_words_updater()
-
-
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
 
 
 def check_input_text(text) -> int:
@@ -123,6 +117,11 @@ def check_input_text(text) -> int:
     return 0
 
 
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}
+
+
 def get_bad_score(text) -> float:
     res = requests.get(bad_words_filter_endpoint_url, params={"text": text})
     if res.status_code == 200:
@@ -132,15 +131,15 @@ def get_bad_score(text) -> float:
 
 
 def chat(text: str, prompt_text: str, ai_name: str):
-    grammatical_person = singular if ai_name in {"brooklyn", "william"} else "plural"
+    grammatical_person = "singular" if ai_name in {"brooklyn", "william"} else "plural"
     if get_bad_score(text) >= 0.4:
-        random_idx = random.randint(0, len(BAD_WORDS["human"][grammatical_person]) - 1)
+        random_idx = random.randint(0, len(bad_words["human"][grammatical_person]) - 1)
         response = {
             "status_code": 200,
-            "message": BAD_WORDS["human"][grammatical_person][random_idx]
+            "message": bad_words["human"][grammatical_person][random_idx]
         }
         chat_log_writer(text, response, ai_name)
-        return
+        return response
     if text[0].islower():
         text = text[0].upper() + text[1:]
     request_text = f"{prompt_text}\nHuman: {text}\nAI:"
@@ -171,10 +170,10 @@ def chat(text: str, prompt_text: str, ai_name: str):
             }
             chat_log_writer(text, response, ai_name)
             return response
-    random_idx = random.randint(0, len(BAD_WORDS["bot"][grammatical_person]) - 1)
+    random_idx = random.randint(0, len(bad_words["bot"][grammatical_person]) - 1)
     response = {
         "status_code": 200,
-        "message": BAD_WORDS["bot"][grammatical_person][random_idx]
+        "message": bad_words["bot"][grammatical_person][random_idx]
     }
     chat_log_writer(text, response, ai_name)
     return response
@@ -214,10 +213,10 @@ def update_prompt(token: str, path: str = None):
             if path not in {"/babyShark/brooklyn",
                             "/babyShark/william",
                             "/babyShark/shark_family",
-                            "/BAD_WORDS"
+                            "/bad_words"
                             }:
                 return ERROR_DICT[6]
-            if path == "/BAD_WORDS":
+            if path == "/bad_words":
                 bad_words_updater()
             else:
                 prompt_updater(path)
