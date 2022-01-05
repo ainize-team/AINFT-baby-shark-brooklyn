@@ -6,13 +6,12 @@ from fastapi import FastAPI
 
 # START LOAD ENV
 print("Load Value From ENV")
-endpoint_url = os.environ.get("ENDPOINT_URL", "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate")
 
 # END LOAD ENV
-
 # Init server and load data
 app = FastAPI()
-endpoint_url = 'https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate'
+endpoint_url = "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate"
+bad_words_filter_endpoint_url = "https://main-roberta-binary-sentiment-classification-ainize-team.endpoint.ainize.ai/classification"
 
 # Load Data
 # TODO: move db
@@ -20,7 +19,7 @@ data = {}
 for fn in os.listdir("./data"):
     file_name = os.path.splitext(fn)[0]
     print(f"Load {file_name} data")
-    with open(f"./data/{fn}", "r", encoding='utf-8') as f:
+    with open(f"./data/{fn}", "r", encoding="utf-8") as f:
         data[file_name] = json.load(f)
 
 ERROR_DICT = {
@@ -39,7 +38,7 @@ ERROR_DICT = {
     4: {
         "status_code": 400,
         "message": "You cannot enter more than 150 characters."
-    }
+    },
 }
 
 informations = {}
@@ -66,7 +65,20 @@ def check_input_text(text) -> int:
     return 0
 
 
+def get_bad_score(text) -> float:
+    res = requests.get(bad_words_filter_endpoint_url, params={"text": text})
+    if res.status_code == 200:
+        return res.json()["result"][0]
+    else:
+        return 1.0
+
+
 def chat(text: str, prompt_text: str):
+    if get_bad_score(text) >= 0.4:
+        return {
+            "status_code": 200,
+            "message": "You can't say that doo doo doo doo doo doo!"
+        }
     if text[0].islower():
         text = text[0].upper() + text[1:]
     request_text = f"{prompt_text}\nHuman: {text}\nAI:"
