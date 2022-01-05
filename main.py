@@ -3,25 +3,41 @@ import os
 
 import requests
 from fastapi import FastAPI
+import firebase_admin
+from firebase_admin import credentials, db
 
-# START LOAD ENV
+
+firebase_credentials = {
+    "type": os.environ.get("FIREBASE_TYPE"),
+    "project_id": os.environ.get("FIREBASE_PROJECT_ID"),
+    "private_key_id": os.environ.get("FIREBASE_PRIVATE_KEY_ID"),
+    "private_key": os.environ.get("FIREBASE_PRIVATE_KEY").replace('\\n', '\n'),
+    "client_email": os.environ.get("FIREBASE_CLIENT_EMAIL"),
+    "client_id": os.environ.get("FIREBASE_CLIENT_ID"),
+    "auth_uri": os.environ.get("FIREBASE_AUTH_URI"),
+    "token_uri": os.environ.get("FIREBASE_TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.environ.get("FIREBASE_AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.environ.get("FIREBASE_CLIENT_X509_CERT_URL")
+}
+
+firebase_configs = {
+    "apiKey": os.environ.get("FIREBASE_API_KEY"),
+    "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN"),
+    "databaseURL": os.environ.get("FIREBASE_DATABASE_URL"),
+    "projectId": os.environ.get("FIREBASE_PROJECT_ID"),
+    "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET"),
+    "messagingSenderId": os.environ.get("FIREBASE_MESSAGING_SENDER_ID"),
+    'appId': os.environ.get("FIREBASE_APP_ID"),
+}
 print("Load Value From ENV")
 endpoint_url = os.environ.get("ENDPOINT_URL", "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate")
 
 # END LOAD ENV
+cred = credentials.Certificate(firebase_credentials)
+firebase_admin.initialize_app(cred, firebase_configs)
 
 # Init server and load data
 app = FastAPI()
-endpoint_url = 'https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate'
-
-# Load Data
-# TODO: move db
-data = {}
-for fn in os.listdir("./data"):
-    file_name = os.path.splitext(fn)[0]
-    print(f"Load {file_name} data")
-    with open(f"./data/{fn}", "r", encoding='utf-8') as f:
-        data[file_name] = json.load(f)
 
 ERROR_DICT = {
     1: {
@@ -39,15 +55,35 @@ ERROR_DICT = {
     4: {
         "status_code": 400,
         "message": "You cannot enter more than 150 characters."
-    }
+    },
+    5: {
+        "status_code": 400,
+        "message": "Invalid Token"
+    },
+    6: {
+        "status_code": 400,
+        "message": "Invalid Path"
+    },
 }
 
 informations = {}
 chat_logs = {}
-for name, data in data.items():
-    informations[name] = " ".join(data["information"])
-    chat_logs[name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
 
+def prompt_updater(path="/babyShark"):
+    if path == "/babyShark":
+        ref = db.reference(path)
+        data = ref.get()
+        for shark in data:
+            informations[shark] = " ".join(data[shark]['information'])
+            chat_logs[shark] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data[shark]["logs"]])
+    else:
+        ref = db.reference(path)
+        data = ref.get()
+        shark = path.split("/")[-1]
+        informations[shark] = " ".join(data['information'])
+        chat_logs[shark] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
+
+prompt_updater()
 
 @app.get("/")
 def read_root():
@@ -117,3 +153,19 @@ def chat_shark_family(text: str):
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['shark_family']}\n\n{chat_logs['shark_family']}"
     return chat(text, prompt_text)
+
+
+@app.post("/update-prompt")
+def update_prompt(token: str, path: str = None):
+    if token == firebase_configs["apiKey"]:
+        if path is not None:
+            if path not in {'/babyShark/brooklyn', '/babyShark/william', '/babyShark/shark_family'}:
+                return ERROR_DICT[6]
+            prompt_updater(path)
+        else:
+            prompt_updater()
+        return {
+            "status_code": 200,
+            "message": "OK"
+        }
+    return ERROR_DICT[5]
