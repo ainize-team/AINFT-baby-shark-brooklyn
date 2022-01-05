@@ -185,7 +185,7 @@ def chat_brooklyn(text: str):
     if error_code:
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['brooklyn']}\n\n{chat_logs['brooklyn']}"
-    return chat(text, prompt_text, "singular")
+    return chat(text, prompt_text, "brooklyn")
 
 
 @app.get("/chat-william")
@@ -194,7 +194,7 @@ def chat_william(text: str):
     if error_code:
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['william']}\n\n{chat_logs['william']}"
-    return chat(text, prompt_text, "singular")
+    return chat(text, prompt_text, "william")
 
 
 @app.get("/chat-shark-family")
@@ -203,7 +203,7 @@ def chat_shark_family(text: str):
     if error_code:
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['shark_family']}\n\n{chat_logs['shark_family']}"
-    return chat(text, prompt_text, "plural")
+    return chat(text, prompt_text, "shark_family")
 
 
 @app.post("/update")
