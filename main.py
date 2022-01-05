@@ -4,24 +4,44 @@ import random
 
 import requests
 from fastapi import FastAPI
+import firebase_admin
+from firebase_admin import credentials, db
 
-# START LOAD ENV
+
+firebase_credentials = {
+    "type": os.environ.get("FIREBASE_TYPE"),
+    "project_id": os.environ.get("FIREBASE_PROJECT_ID"),
+    "private_key_id": os.environ.get("FIREBASE_PRIVATE_KEY_ID"),
+    "private_key": os.environ.get("FIREBASE_PRIVATE_KEY").replace('\\n', '\n'),
+    "client_email": os.environ.get("FIREBASE_CLIENT_EMAIL"),
+    "client_id": os.environ.get("FIREBASE_CLIENT_ID"),
+    "auth_uri": os.environ.get("FIREBASE_AUTH_URI"),
+    "token_uri": os.environ.get("FIREBASE_TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.environ.get("FIREBASE_AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.environ.get("FIREBASE_CLIENT_X509_CERT_URL")
+}
+
+firebase_configs = {
+    "apiKey": os.environ.get("FIREBASE_API_KEY"),
+    "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN"),
+    "databaseURL": os.environ.get("FIREBASE_DATABASE_URL"),
+    "projectId": os.environ.get("FIREBASE_PROJECT_ID"),
+    "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET"),
+    "messagingSenderId": os.environ.get("FIREBASE_MESSAGING_SENDER_ID"),
+    'appId': os.environ.get("FIREBASE_APP_ID"),
+}
 print("Load Value From ENV")
+endpoint_url = os.environ.get("ENDPOINT_URL", "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate")
 
 # END LOAD ENV
+cred = credentials.Certificate(firebase_credentials)
+firebase_admin.initialize_app(cred, firebase_configs)
+
 # Init server and load data
 app = FastAPI()
 endpoint_url = "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate"
-bad_words_filter_endpoint_url = "https://main-roberta-binary-sentiment-classification-ainize-team.endpoint.ainize.ai/classification"
-
-# Load Data
-# TODO: move db
-data = {}
-for fn in os.listdir("./data"):
-    file_name = os.path.splitext(fn)[0]
-    print(f"Load {file_name} data")
-    with open(f"./data/{fn}", "r", encoding="utf-8") as f:
-        data[file_name] = json.load(f)
+bad_words_filter_endpoint_url = \
+    "https://main-roberta-binary-sentiment-classification-ainize-team.endpoint.ainize.ai/classification"
 
 ERROR_DICT = {
     1: {
@@ -40,38 +60,50 @@ ERROR_DICT = {
         "status_code": 400,
         "message": "You cannot enter more than 150 characters."
     },
+    5: {
+        "status_code": 400,
+        "message": "Invalid Token"
+    },
+    6: {
+        "status_code": 400,
+        "message": "Invalid Path"
+    },
 }
 
-BAD_WORDS = {
-    "human": {
-        "singular": [
-            "I don't know what you're talking about doo doo doo doo doo doo.",
-            "I think you use bad words. You can't use bad words doo doo doo doo doo doo.",
-            "I think what you say is unethical doo doo doo doo doo doo."
-        ],
-        "plural": [
-            "We don't know what you're talking about doo doo doo doo doo doo.",
-            "We think you use bad words. You can't use bad words doo doo doo doo doo doo.",
-            "We think what you say is unethical doo doo doo doo doo doo."
-        ],
-    },
-    "bot": {
-        "singular": [
-            "I don't know what you're talking about doo doo doo doo doo doo."
-            "I didn't understand what you were saying doo doo doo doo doo doo.",
-        ],
-        "plural": [
-            "We don't know what you're talking about doo doo doo doo doo doo.",
-            "We didn't understand what you were saying doo doo doo doo doo doo.",
-        ],
-    }
-}
 
 informations = {}
 chat_logs = {}
-for name, data in data.items():
-    informations[name] = " ".join(data["information"])
-    chat_logs[name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
+bad_words = {}
+
+
+def bad_words_updater():
+    global bad_words
+    ref = db.reference("/BAD_WORDS")
+    bad_words = ref.get()
+
+
+def prompt_updater(path="/babyShark"):
+    if path == "/babyShark":
+        ref = db.reference(path)
+        data = ref.get()
+        for ai_name in data:
+            informations[ai_name] = " ".join(data[ai_name]['information'])
+            chat_logs[ai_name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data[ai_name]["logs"]])
+    else:
+        ref = db.reference(path)
+        data = ref.get()
+        ai_name = path.split("/")[-1]
+        informations[ai_name] = " ".join(data['information'])
+        chat_logs[ai_name] = "\n".join([f"Human: {each['Human']}\nAI: {each['AI']}" for each in data["logs"]])
+
+
+def chat_log_writer(user_text: str, response: str, ai_name: str):
+    ref = db.reference("/chat_logs")
+    ref.push({"user_text": user_text, "ai_name": ai_name, "response": response})
+
+
+prompt_updater()
+bad_words_updater()
 
 
 @app.get("/")
@@ -99,13 +131,16 @@ def get_bad_score(text) -> float:
         return 1.0
 
 
-def chat(text: str, prompt_text: str, grammatical_person: str):
+def chat(text: str, prompt_text: str, ai_name: str):
+    grammatical_person = singular if ai_name in {"brooklyn", "william"} else "plural"
     if get_bad_score(text) >= 0.4:
         random_idx = random.randint(0, len(BAD_WORDS["human"][grammatical_person]) - 1)
-        return {
+        response = {
             "status_code": 200,
             "message": BAD_WORDS["human"][grammatical_person][random_idx]
         }
+        chat_log_writer(text, response, ai_name)
+        return
     if text[0].islower():
         text = text[0].upper() + text[1:]
     request_text = f"{prompt_text}\nHuman: {text}\nAI:"
@@ -123,20 +158,26 @@ def chat(text: str, prompt_text: str, grammatical_person: str):
                     break
                 ret_text += response_text[i]
             if get_bad_score(ret_text.strip()) < 0.4:
-                return {
+                response = {
                     "status_code": res.status_code,
                     "message": ret_text.strip()
                 }
+                chat_log_writer(text, response, ai_name)
+                return response
         else:
-            return {
+            response = {
                 "status_code": res.status_code,
-                "message": "Some Error Occurs"
+                "message": "Unexpected Error Occurs"
             }
+            chat_log_writer(text, response, ai_name)
+            return response
     random_idx = random.randint(0, len(BAD_WORDS["bot"][grammatical_person]) - 1)
-    return {
+    response = {
         "status_code": 200,
         "message": BAD_WORDS["bot"][grammatical_person][random_idx]
     }
+    chat_log_writer(text, response, ai_name)
+    return response
 
 
 @app.get("/chat-brooklyn")
@@ -164,3 +205,26 @@ def chat_shark_family(text: str):
         return ERROR_DICT[error_code]
     prompt_text = f"{informations['shark_family']}\n\n{chat_logs['shark_family']}"
     return chat(text, prompt_text, "plural")
+
+
+@app.post("/update")
+def update_prompt(token: str, path: str = None):
+    if token == firebase_configs["apiKey"]:
+        if path is not None:
+            if path not in {"/babyShark/brooklyn",
+                            "/babyShark/william",
+                            "/babyShark/shark_family",
+                            "/BAD_WORDS"
+                            }:
+                return ERROR_DICT[6]
+            if path == "/BAD_WORDS":
+                bad_words_updater()
+            else:
+                prompt_updater(path)
+        else:
+            prompt_updater()
+        return {
+            "status_code": 200,
+            "message": "OK"
+        }
+    return ERROR_DICT[5]
