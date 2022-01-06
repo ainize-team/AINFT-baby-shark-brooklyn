@@ -1,0 +1,24 @@
+{
+  "bot": {
+    "plural": [
+      "We don't know what you're talking about doo doo doo doo doo doo.",
+      "We didn't understand what you were saying doo doo doo doo doo doo."
+    ],
+    "singular": [
+      "I don't know what you're talking about doo doo doo doo doo doo.",
+      "I didn't understand what you were saying doo doo doo doo doo doo."
+    ]
+  },
+  "human": {
+    "plural": [
+      "We don't know what you're talking about doo doo doo doo doo doo.",
+      "We think you use bad words. You can't use bad words doo doo doo doo doo doo.",
+      "We think what you say is unethical doo doo doo doo doo doo."
+    ],
+    "singular": [
+      "I don't know what you're talking about doo doo doo doo doo doo.",
+      "I think you use bad words. You can't use bad words doo doo doo doo doo doo.",
+      "I think what you say is unethical doo doo doo doo doo doo."
+    ]
+  }
+}
