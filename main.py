@@ -18,13 +18,14 @@ endpoint_dict = {
 
 # Connect AINetwork
 provider_url = "https://testnet-api.ainetwork.ai"
+app_private_key = os.environ["APP_PRIVATE_KEY"]
 brooklyn_private_key = os.environ["BROOKLYN_PRIVATE_KEY"]
 william_private_key = os.environ["WILLIAM_PRIVATE_KEY"]
 shark_family_private_key = os.environ["SHARK_FAMILY_PRIVATE_KEY"]
 
-brooklyn_ain = Ain(provider_url, chainId=0)
-william_ain = Ain(provider_url, chainId=0)
-shark_family_ain = Ain(provider_url, chainId=0)
+brooklyn_ain = Ain(provider_url, chainId=None)
+william_ain = Ain(provider_url, chainId=None)
+shark_family_ain = Ain(provider_url, chainId=None)
 
 brooklyn_ain.wallet.addAndSetDefaultAccount(brooklyn_private_key, )
 william_ain.wallet.addAndSetDefaultAccount(william_private_key)
@@ -69,14 +70,12 @@ with open("./initial_data/bad_words.json", "r", encoding='utf-8') as f:
 
 
 async def set_value(ref, value, ain):
-    print(ain, brooklyn_ain.wallet)
-    task = asyncio.create_task(ain.db.ref(ref).setValue(
+    result = await asyncio.create_task(ain.db.ref(ref).setValue(
         ValueOnlyTransactionInput(
             value=value,
             nonce=-1
         )
     ))
-    await task
 
 
 def preprocessing_request(req: Dict[AnyStr, Any]):
@@ -154,13 +153,7 @@ async def chat_brooklyn(req: Dict[AnyStr, Any] = None):
         prompt = f"{information}\n\n{logs}"
         response_text = chat(text, prompt, "brooklyn")
         result_ref = "/".join(ref.split('/')[:-1] + ["response"])
-        task = asyncio.create_task(set_value(result_ref, {"text": response_text}, william_ain))
-        await task
-        # try:
-        #     task = asyncio.create_task(set_value(result_ref, {"text": response_text}, brooklyn_ain))
-        #     await task
-        # except Exception as e:
-        #     print(e)
+        await set_value(result_ref, {"text": response_text}, brooklyn_ain)
 
 
 @app.post("/chat-william")
@@ -176,13 +169,7 @@ async def chat_william(req: Dict[AnyStr, Any] = None):
         prompt = f"{information}\n\n{logs}"
         response_text = chat(text, prompt, "william")
         result_ref = "/".join(ref.split('/')[:-1] + ["response"])
-        task = asyncio.create_task(set_value(result_ref, {"text": response_text}, william_ain))
-        await task
-        # try:
-        #     task = asyncio.create_task(set_value(result_ref, {"text": response_text}, william_ain))
-        #     await task
-        # except Exception as e:
-        #     print(e)
+        await set_value(result_ref, {"text": response_text}, william_ain)
 
 
 @app.post("/chat-shark-family")
@@ -198,10 +185,38 @@ async def chat_shark_family(req: Dict[AnyStr, Any] = None):
         prompt = f"{information}\n\n{logs}"
         response_text = chat(text, prompt, "shark_family")
         result_ref = "/".join(ref.split('/')[:-1] + ["response"])
-        task = asyncio.create_task(set_value(result_ref, {"text": response_text}, shark_family_ain))
-        await task
-        # try:
-        #     task = asyncio.create_task(set_value(result_ref, {"text": response_text}, shark_family_ain))
-        #     await task
-        # except Exception as e:
-        #     print(e)
+        await set_value(result_ref, {"text": response_text}, shark_family_ain)
+
+
+@app.get("/update-data")
+def chat_shark_family(private_key:str, data_type: str, data: str):
+    global prompt_information, bad_words
+    if private_key == app_private_key:
+        if data_type == "brooklyn":
+            prompt_information["brooklyn"] = json.loads(data)
+            return {
+                "message": f"{data}"
+            }
+        elif data_type == "william":
+            prompt_information["william"] = json.loads(data)
+            return {
+                "message": f"{data}"
+            }
+        elif data_type == "shark-family":
+            prompt_information["shark-family"] = json.loads(data)
+            return {
+                "message": f"{data}"
+            }
+        elif data_type == "ethical-filter":
+            bad_words = json.loads(data)
+            return {
+                "message": f"{data}"
+            }
+        else:
+            return {
+                "message": f"{data_type} is not valid data type"
+            }
+    else:
+        return {
+            "message": f"{private_key} is not valid."
+        }
