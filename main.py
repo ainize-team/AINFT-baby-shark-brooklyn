@@ -174,7 +174,7 @@ def chat_william(req: Dict[AnyStr, Any] = None):
 
 
 @app.post("/chat-shark-family")
-def chat_william(req: Dict[AnyStr, Any] = None):
+def chat_shark_family(req: Dict[AnyStr, Any] = None):
     is_valid, text, ref = preprocessing_request(req)
     if is_valid:
         error_code = check_input_text(text)
