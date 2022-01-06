@@ -22,15 +22,13 @@ brooklyn_private_key = os.environ["BROOKLYN_PRIVATE_KEY"]
 william_private_key = os.environ["WILLIAM_PRIVATE_KEY"]
 shark_family_private_key = os.environ["SHARK_FAMILY_PRIVATE_KEY"]
 
-brooklyn_ain = Ain(provider_url)
-william_ain = Ain(provider_url)
-shark_family_ain = Ain(provider_url)
+brooklyn_ain = Ain(provider_url, chainId=0)
+william_ain = Ain(provider_url, chainId=0)
+shark_family_ain = Ain(provider_url, chainId=0)
 
-brooklyn_ain.wallet.addAndSetDefaultAccount(brooklyn_private_key)
+brooklyn_ain.wallet.addAndSetDefaultAccount(brooklyn_private_key, )
 william_ain.wallet.addAndSetDefaultAccount(william_private_key)
 shark_family_ain.wallet.addAndSetDefaultAccount(shark_family_private_key)
-
-loop = asyncio.get_event_loop()
 
 # Init server and load data
 app = FastAPI()
@@ -63,33 +61,35 @@ ERROR_DICT = {
 }
 
 # Initial data
-with open("./initial_data/prompt_information.json", "r") as f:
+with open("./initial_data/prompt_information.json", "r", encoding='utf-8') as f:
     prompt_information = json.load(f)
 
-with open("./initial_data/bad_words.json", "r") as f:
+with open("./initial_data/bad_words.json", "r", encoding='utf-8') as f:
     bad_words = json.load(f)
 
 
-async def set_value(ref, ain, value):
-    result = await ain.db.ref(ref).setValue(
+async def set_value(ref, value, ain):
+    print(ain, brooklyn_ain.wallet)
+    task = asyncio.create_task(ain.db.ref(ref).setValue(
         ValueOnlyTransactionInput(
             value=value,
             nonce=-1
         )
-    )
+    ))
+    await task
 
 
 def preprocessing_request(req: Dict[AnyStr, Any]):
-    if "transaction" not in req or \
-            "tx_body" not in req["transaction"] or \
-            "operation" not in req["transaction"]["tx_body"]:
+    if b"transaction" not in req or \
+            "tx_body" not in req[b"transaction"] or \
+            "operation" not in req[b"transaction"]["tx_body"]:
         return False, f'Invalid transaction : {req}', ""
-    transaction = req["transaction"]["tx_body"]["operation"]
+    transaction = req[b"transaction"]["tx_body"]["operation"]
     transaction_type = transaction["type"]
     if transaction_type != "SET_VALUE":
         return False, f"Not supported transaction type : {transaction_type}", ""
     value = transaction["value"]
-    return True, value["text"],
+    return True, value["text"], transaction["ref"]
 
 
 def check_input_text(text: str) -> int:
@@ -112,7 +112,7 @@ def get_ethical_score(text) -> float:
         return 0.0
 
 
-def chat(text: str, prompt_text: str, ai_name: str, ain: Ain) -> str:
+def chat(text: str, prompt_text: str, ai_name: str) -> str:
     grammatical_person = "singular" if ai_name in {"brooklyn", "william"} else "plural"
     if get_ethical_score(text) <= 0.4:
         random_idx = random.randint(0, len(bad_words["human"][grammatical_person]) - 1)
@@ -152,13 +152,19 @@ async def chat_brooklyn(req: Dict[AnyStr, Any] = None):
         logs = "\n".join(
             [f"Human: {each['Human']}\nAI: {each['AI']}" for each in prompt_information["brooklyn"]["logs"]])
         prompt = f"{information}\n\n{logs}"
-        response_text = chat(text, prompt, "brooklyn", brooklyn_ain)
+        response_text = chat(text, prompt, "brooklyn")
         result_ref = "/".join(ref.split('/')[:-1] + ["response"])
-        loop.run_until_complete(set_value(result_ref, {"text": response_text}))
+        task = asyncio.create_task(set_value(result_ref, {"text": response_text}, william_ain))
+        await task
+        # try:
+        #     task = asyncio.create_task(set_value(result_ref, {"text": response_text}, brooklyn_ain))
+        #     await task
+        # except Exception as e:
+        #     print(e)
 
 
 @app.post("/chat-william")
-def chat_william(req: Dict[AnyStr, Any] = None):
+async def chat_william(req: Dict[AnyStr, Any] = None):
     is_valid, text, ref = preprocessing_request(req)
     if is_valid:
         error_code = check_input_text(text)
@@ -168,13 +174,19 @@ def chat_william(req: Dict[AnyStr, Any] = None):
         logs = "\n".join(
             [f"Human: {each['Human']}\nAI: {each['AI']}" for each in prompt_information["william"]["logs"]])
         prompt = f"{information}\n\n{logs}"
-        response_text = chat(text, prompt, "william", william_ain)
+        response_text = chat(text, prompt, "william")
         result_ref = "/".join(ref.split('/')[:-1] + ["response"])
-        loop.run_until_complete(set_value(result_ref, {"text": response_text}))
+        task = asyncio.create_task(set_value(result_ref, {"text": response_text}, william_ain))
+        await task
+        # try:
+        #     task = asyncio.create_task(set_value(result_ref, {"text": response_text}, william_ain))
+        #     await task
+        # except Exception as e:
+        #     print(e)
 
 
 @app.post("/chat-shark-family")
-def chat_shark_family(req: Dict[AnyStr, Any] = None):
+async def chat_shark_family(req: Dict[AnyStr, Any] = None):
     is_valid, text, ref = preprocessing_request(req)
     if is_valid:
         error_code = check_input_text(text)
@@ -184,6 +196,12 @@ def chat_shark_family(req: Dict[AnyStr, Any] = None):
         logs = "\n".join(
             [f"Human: {each['Human']}\nAI: {each['AI']}" for each in prompt_information["shark_family"]["logs"]])
         prompt = f"{information}\n\n{logs}"
-        response_text = chat(text, prompt, "shark_family", william_ain)
+        response_text = chat(text, prompt, "shark_family")
         result_ref = "/".join(ref.split('/')[:-1] + ["response"])
-        loop.run_until_complete(set_value(result_ref, {"text": response_text}))
+        task = asyncio.create_task(set_value(result_ref, {"text": response_text}, shark_family_ain))
+        await task
+        # try:
+        #     task = asyncio.create_task(set_value(result_ref, {"text": response_text}, shark_family_ain))
+        #     await task
+        # except Exception as e:
+        #     print(e)
