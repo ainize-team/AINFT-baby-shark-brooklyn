@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import random
 import uuid
@@ -97,7 +98,7 @@ bad_words_updater()
 
 # Init server and load data
 app = FastAPI()
-endpoint_url = "https://main-ainize-gpt-j-6b-589hero.endpoint.ainize.ai/generate"
+endpoint_url = "https://eleuther-ai-gpt-j-6b-float16-text-generation-api-ainize-team.endpoint.ainize.ai/predictions/text-generation"
 bad_words_filter_endpoint_url = \
     "https://main-roberta-binary-sentiment-classification-ainize-team.endpoint.ainize.ai/classification"
 
@@ -168,6 +169,7 @@ def get_bad_score(text) -> float:
 
 
 def chat(text: str, prompt_text: str, ai_name: str):
+    headers = {"Content-Type": "application/json"}
     grammatical_person = "singular" if ai_name in {"brooklyn", "william"} else "plural"
     if get_bad_score(text) >= 0.4:
         random_idx = random.randint(0, len(bad_words["human"][grammatical_person]) - 1)
@@ -181,12 +183,18 @@ def chat(text: str, prompt_text: str, ai_name: str):
     request_text = f"{prompt_text}\nHuman: {text}\nAI:"
 
     for step in range(3):
-        res = requests.post(endpoint_url, data={
-            "text": request_text,
+        data = json.dumps({
+            "text_inputs": request_text,
+            "temperature": 0.9,
+            "top_p": 0.95,
+            "repetition_penalty": 0.8,
+            "do_sample": True,
+            "top_k": 50,
             "length": 50,
         })
+        res = requests.post(endpoint_url, headers=headers, data=data)
         if res.status_code == 200:
-            response_text = res.json()["0"]
+            response_text = res.json()[0]
             ret_text = ""
             for i in range(len(request_text), len(response_text)):
                 if response_text[i] == "\n" or response_text[i:i + 7] == "Human: " or response_text[i:i + 4] == "AI: ":
